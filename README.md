@@ -113,10 +113,11 @@ chmod 0755 /data/webmin/kmsfirewall/index.cgi /data/webmin/kmsfirewall/api.cgi
 Run syntax checks on the Alpine target:
 
 ```sh
-perl -c /data/webmin/kmsfirewall/acl_security.pl
-perl -I/data/webmin -c /data/webmin/kmsfirewall/kmsfirewall-lib.pl
-perl -I/data/webmin -c /data/webmin/kmsfirewall/auth-lib.pl
-perl -I/data/webmin -c /data/webmin/kmsfirewall/api.cgi
+perl -c /data/webmin/kmsfirewall/acl_security.pl && \
+perl -I/data/webmin -c /data/webmin/kmsfirewall/kmsfirewall-lib.pl && \
+perl -I/data/webmin -c /data/webmin/kmsfirewall/auth-lib.pl && \
+perl -I/data/webmin -c /data/webmin/kmsfirewall/api.cgi && \
+perl -c /data/webmin/kmsfirewall/index.cgi
 ```
 
 On Alpine systems whose curl does not support a cookie jar, run the included
