@@ -102,15 +102,10 @@ manager according to your operational policy.
 From the project parent directory on the server, run as root:
 
 ```sh
-install -d -m 0755 /data/webmin/kmsfirewall
-cp -a ./kmsfirewall/. /data/webmin/kmsfirewall/
-chown -R root:root /data/webmin/kmsfirewall
-find /data/webmin/kmsfirewall -type d -exec chmod 0755 {} \;
-find /data/webmin/kmsfirewall -type f -exec chmod 0644 {} \;
-chmod 0600 /data/webmin/kmsfirewall/config
-chmod 0755 /data/webmin/kmsfirewall/index.cgi
-chmod 0755 /data/webmin/kmsfirewall/api.cgi
-/data/webmin/restart
+cp -a /tmp/kmsfirewall/. /data/webmin/kmsfirewall/ && \
+chown -R root:root /data/webmin/kmsfirewall && \
+chmod 0600 /data/webmin/kmsfirewall/config && \
+chmod 0755 /data/webmin/kmsfirewall/index.cgi /data/webmin/kmsfirewall/api.cgi
 ```
 
 ## Tests
