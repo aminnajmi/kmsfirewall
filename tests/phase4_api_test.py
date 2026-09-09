@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--url', required=True,
                         help='Webmin base URL, for example https://server:19193')
     parser.add_argument('--user', default='kms-api')
+    parser.add_argument('--add-address',
+                        help='Explicitly add one safe test IPv4/CIDR address')
     parser.add_argument('--insecure', action='store_true',
                         help='Allow an untrusted TLS certificate for development only')
     args = parser.parse_args()
@@ -47,6 +49,18 @@ def main():
         url = base_url + '/kmsfirewall/api.cgi?action=' + action
         try:
             with request(opener, url) as response:
+                body = response.read().decode('utf-8')
+                print(response.status, json.dumps(json.loads(body), sort_keys=True))
+        except urllib.error.HTTPError as error:
+            body = error.read().decode('utf-8', errors='replace')
+            print(error.code, body, file=sys.stderr)
+            return 1
+
+    if args.add_address:
+        url = base_url + '/kmsfirewall/api.cgi?action=add'
+        form = urllib.parse.urlencode({'address': args.add_address}).encode('utf-8')
+        try:
+            with request(opener, url, form) as response:
                 body = response.read().decode('utf-8')
                 print(response.status, json.dumps(json.loads(body), sort_keys=True))
         except urllib.error.HTTPError as error:

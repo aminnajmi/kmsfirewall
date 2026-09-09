@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased - Phase 5A
+
+- Added the authorized POST-only `action=add` API operation.
+- Added strict IPv4/CIDR form validation, duplicate detection, and read-back
+  verification for the fixed KMS whitelist target.
+
 ## Unreleased - Phase 4 fixes
 
 - Treat a valid whitelist set without an `elem` field as an empty whitelist.

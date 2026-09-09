@@ -15,6 +15,7 @@ sub send_json {
 		403 => 'Forbidden',
 		404 => 'Not Found',
 		405 => 'Method Not Allowed',
+		409 => 'Conflict',
 		500 => 'Internal Server Error',
 	);
 
@@ -45,25 +46,47 @@ sub decode_query_component {
 	return $value;
 }
 
-sub request_action {
-	my $query = $ENV{'QUERY_STRING'} || '';
-	return (undef, undef) if $query eq '';
-
+sub parse_parameters {
+	my ($raw, $allowed) = @_;
+	return ({}, undef) if $raw eq '';
 	my %parameters;
-	for my $pair (split(/&/, $query, -1)) {
+	for my $pair (split(/&/, $raw, -1)) {
 		my ($raw_name, $raw_value) = split(/=/, $pair, 2);
 		$raw_value = '' if !defined $raw_value;
 		my $name = decode_query_component($raw_name);
 		my $value = decode_query_component($raw_value);
-		return (undef, 'Malformed query string')
+		return (undef, 'Malformed request parameters')
 			if !defined($name) || !defined($value);
-		return (undef, 'Unsupported query parameter')
-			if $name ne 'action' || exists $parameters{$name};
+		return (undef, 'Unsupported request parameter')
+			if !exists($allowed->{$name}) || exists $parameters{$name};
 		$parameters{$name} = $value;
 	}
-
-	return ($parameters{'action'}, undef);
+	return (\%parameters, undef);
 }
+
+sub request_action {
+	my ($parameters, $error) = parse_parameters($ENV{'QUERY_STRING'} || '', {
+		action => 1,
+	});
+	return (undef, $error) if $error;
+	return ($parameters->{'action'}, undef);
+}
+
+sub post_parameters {
+	my $length = $ENV{'CONTENT_LENGTH'} || 0;
+	return (undef, 'Invalid request body') if $length !~ /\A\d+\z/ || $length > 4096;
+	return (undef, 'Unsupported request content type')
+		if ($ENV{'CONTENT_TYPE'} || '') !~ /\Aapplication\/x-www-form-urlencoded(?:;|\z)/i;
+
+	my $body = '';
+	while (length($body) < $length) {
+		my $read = read(STDIN, my $chunk, $length - length($body));
+		return (undef, 'Unable to read request body') if !defined($read) || $read == 0;
+		$body .= $chunk;
+	}
+	return parse_parameters($body, { address => 1 });
+}
+
 
 my $loaded = eval {
 	&init_config();
@@ -76,12 +99,13 @@ send_error(500, 'INTERNAL_ERROR', 'Internal server error') if !$loaded;
 send_error(403, 'FORBIDDEN', 'KMS Firewall API access denied')
 	if !api_authorized();
 
-my $method = uc($ENV{'REQUEST_METHOD'} || 'GET');
-send_error(405, 'METHOD_NOT_ALLOWED', 'HTTP method not allowed')
-	if $method ne 'GET';
-
 my ($action, $query_error) = request_action();
 send_error(400, 'INVALID_PARAMETER', $query_error) if $query_error;
+
+my $method = uc($ENV{'REQUEST_METHOD'} || 'GET');
+
+send_error(405, 'METHOD_NOT_ALLOWED', 'HTTP method not allowed')
+	if (!defined($action) || $action eq 'status') && $method ne 'GET';
 
 send_json(200, {
 	success => JSON::PP::true,
@@ -91,6 +115,7 @@ send_json(200, {
 }) if !defined($action) || $action eq 'status';
 
 if ($action eq 'list') {
+	send_error(405, 'METHOD_NOT_ALLOWED', 'HTTP method not allowed') if $method ne 'GET';
 	my ($addresses, $error) = read_kms_whitelist();
 	send_error($error->{'http_status'}, $error->{'code'}, $error->{'message'})
 		if $error;
@@ -102,5 +127,30 @@ if ($action eq 'list') {
 		addresses => $addresses,
 	});
 }
+
+if ($action eq 'add') {
+	send_error(405, 'METHOD_NOT_ALLOWED', 'HTTP method not allowed') if $method ne 'POST';
+	my ($parameters, $parameter_error) = post_parameters();
+	send_error(400, 'INVALID_PARAMETER', $parameter_error) if $parameter_error;
+	send_error(400, 'INVALID_ADDRESS', 'Address is required')
+		if !exists($parameters->{'address'}) || $parameters->{'address'} eq '';
+	send_error(400, 'INVALID_ADDRESS', 'Invalid IPv4 address or CIDR')
+		if !valid_ipv4_or_cidr($parameters->{'address'});
+	my $address = normalize_ipv4_or_cidr($parameters->{'address'});
+
+	my ($addresses, $error) = add_kms_whitelist($address);
+	send_error($error->{'http_status'}, $error->{'code'}, $error->{'message'})
+		if $error;
+	send_json(200, {
+		success   => JSON::PP::true,
+		module    => 'kmsfirewall',
+		version   => module_version(),
+		action    => 'add',
+		address   => $address,
+		addresses => $addresses,
+	});
+}
+
+send_error(405, 'METHOD_NOT_ALLOWED', 'HTTP method not allowed') if $method ne 'GET';
 
 send_error(404, 'INVALID_ACTION', 'Unsupported API action');

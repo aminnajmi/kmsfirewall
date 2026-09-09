@@ -53,15 +53,35 @@ sub valid_ipv4_or_cidr {
 	return 1;
 }
 
-sub read_kms_whitelist {
+sub normalize_ipv4_or_cidr {
+	my ($value) = @_;
+	return undef if !valid_ipv4_or_cidr($value);
+	my ($address, $prefix) = split(/\//, $value, 2);
+	return $address if !defined($prefix) || $prefix == 32;
+
+	my $remaining = $prefix;
+	my @normalized = map {
+		my $bits = $remaining >= 8 ? 8 : $remaining;
+		my $mask = $bits == 0 ? 0 : (0xFF << (8 - $bits)) & 0xFF;
+		$remaining -= $bits;
+		$_ & $mask;
+	} split(/\./, $address);
+	return join('.', @normalized) . '/' . $prefix;
+}
+
+sub valid_kms_target {
 	my $table = configured_table();
 	my $set = configured_set();
+	return $table eq 'KMS-Firewall' && $set eq 'kms_whitelist'
+		&& $table =~ /\A[A-Za-z0-9_.-]+\z/ && $set =~ /\A[A-Za-z0-9_.-]+\z/;
+}
+
+sub read_kms_whitelist {
 	return (undef, {
 		code => 'INVALID_INTERNAL_CONFIGURATION',
 		message => 'Firewall target configuration is invalid',
 		http_status => 500,
-	}) if $table ne 'KMS-Firewall' || $set ne 'kms_whitelist'
-		|| $table !~ /\A[A-Za-z0-9_.-]+\z/ || $set !~ /\A[A-Za-z0-9_.-]+\z/;
+	}) if !valid_kms_target();
 
 	my $nft = nft_command_path();
 	return (undef, {
@@ -166,6 +186,67 @@ sub read_kms_whitelist {
 	}
 
 	return (\@addresses, undef);
+}
+
+sub add_kms_whitelist {
+	my ($address) = @_;
+	$address = normalize_ipv4_or_cidr($address);
+	return (undef, {
+		code => 'INVALID_ADDRESS',
+		message => 'Invalid IPv4 address or CIDR',
+		http_status => 400,
+	}) if !defined($address);
+
+	my ($existing, $read_error) = read_kms_whitelist();
+	return (undef, $read_error) if $read_error;
+	return (undef, {
+		code => 'ALREADY_EXISTS',
+		message => 'Address already exists',
+		http_status => 409,
+	}) if grep { $_ eq $address } @{$existing};
+
+	return (undef, {
+		code => 'INVALID_INTERNAL_CONFIGURATION',
+		message => 'Firewall target configuration is invalid',
+		http_status => 500,
+	}) if !valid_kms_target();
+	my $nft = nft_command_path();
+	return (undef, {
+		code => 'NFT_NOT_FOUND',
+		message => 'nftables command is not available',
+		http_status => 500,
+	}) if !defined($nft);
+
+	my @command = ($nft, 'add', 'element', 'inet', 'KMS-Firewall',
+		'kms_whitelist', '{', $address, '}');
+	open(my $nft_output, '-|', @command) or return (undef, {
+		code => 'NFT_COMMAND_FAILED',
+		message => 'Unable to execute nftables command',
+		http_status => 500,
+	});
+	while (1) {
+		my $read = read($nft_output, my $chunk, 8192);
+		last if defined($read) && $read == 0;
+		return (undef, {
+			code => 'NFT_COMMAND_FAILED',
+			message => 'Unable to execute nftables command',
+			http_status => 500,
+		}) if !defined($read);
+	}
+	my $closed = close($nft_output);
+	return (undef, {
+		code => 'NFT_COMMAND_FAILED',
+		message => 'nftables command failed',
+		http_status => 500,
+	}) if !$closed || $? != 0;
+
+	my ($updated, $verify_error) = read_kms_whitelist();
+	return (undef, {
+		code => 'NFT_VERIFICATION_FAILED',
+		message => 'Unable to verify whitelist update',
+		http_status => 500,
+	}) if $verify_error || !grep { $_ eq $address } @{$updated};
+	return ($updated, undef);
 }
 
 1;

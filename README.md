@@ -5,7 +5,7 @@ KMS whitelist in a later phase. Laravel must not receive root Webmin or SSH
 credentials, and this module never exposes a generic command, file, RPC, or
 nftables endpoint.
 
-## Implemented scope: Phase 4
+## Implemented scope: Phase 5A
 
 The module has a status-only GUI and one read-only health endpoint:
 
@@ -13,6 +13,7 @@ The module has a status-only GUI and one read-only health endpoint:
 GET /kmsfirewall/api.cgi
 GET /kmsfirewall/api.cgi?action=status
 GET /kmsfirewall/api.cgi?action=list
+POST /kmsfirewall/api.cgi?action=add
 ```
 
 `list` is read-only. It executes only the fixed argument-list command
@@ -21,9 +22,19 @@ with `JSON::PP`, and returns only validated IPv4 addresses or CIDRs. The HTTP
 request cannot select an executable, command, table, family, set, or argument.
 No nftables state, firewall configuration, chains, or rules are modified.
 
-`add`, `remove`, `delete`, IP checking, and all other write operations remain
-unimplemented. There are no API keys, Bearer tokens, generic commands, or RPC
-endpoints.
+`add` accepts exactly one form parameter: `address=<IPv4 or IPv4/CIDR>`. It
+requires the existing Webmin authentication and module authorization, rejects
+GET and unexpected or duplicate parameters, checks the current whitelist for
+an exact duplicate, runs only the fixed-target nftables add command, and then
+re-reads the set to verify the update. A duplicate returns HTTP 409 with
+`ALREADY_EXISTS`; a failed read-back returns `NFT_VERIFICATION_FAILED`.
+CIDR addresses are canonicalized to their network prefix (and `/32` to a host
+address) before duplicate checking, nftables execution, verification, and the
+response; this does not alter the represented network.
+
+`remove`, `delete`, IP checking, and all other write operations remain
+unimplemented. The module never creates the table or set automatically. There
+are no API keys, Bearer tokens, generic commands, or RPC endpoints.
 
 ## Authentication and authorization architecture
 
@@ -122,12 +133,18 @@ python3 /data/webmin/kmsfirewall/tests/phase4_api_test.py --url 'https://SERVER:
 
 # Development only, for an untrusted TLS certificate:
 python3 /data/webmin/kmsfirewall/tests/phase4_api_test.py --url 'https://SERVER:19193' --insecure
+
+# This changes the whitelist; use only a non-production documentation address.
+python3 /data/webmin/kmsfirewall/tests/phase4_api_test.py \
+  --url 'https://SERVER:19193' --insecure --add-address '192.0.2.10'
 ```
 
-The script performs authenticated `status` and `list` GET requests only. Test
-invalid actions, POST, unauthenticated access, and a second module-authorized
-but non-API user using your existing Webmin-session test harness; their expected
-HTTP statuses remain 404, 405, Webmin-controlled denial, and 403 respectively.
+Without `--add-address`, the script performs authenticated `status` and `list`
+GET requests only. With it, the script sends one form-encoded POST add request
+and prints the verified resulting whitelist. Use the existing Webmin-session
+test harness to confirm invalid addresses/CIDRs, IPv6, hostnames, missing or
+duplicate parameters (HTTP 400), duplicate values (HTTP 409), GET add (HTTP
+405), unauthenticated access, and a non-API user (HTTP 403 after module ACL).
 
 Success response:
 
@@ -158,4 +175,4 @@ may not be JSON; this is an unavoidable consequence of using documented
 ## Future phases
 
 Future phases may add validated IPv4 operations only after explicit approval.
-No write support or persistence integration is implemented in Phase 4.
+No remove support or persistence integration is implemented in Phase 5A.
