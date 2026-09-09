@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased - Phase 4 fixes
+
+- Treat a valid whitelist set without an `elem` field as an empty whitelist.
+- Declared Webmin language text in the status CGI for strict-mode compatibility.
+
 ## Unreleased - Phase 4
 
 - Added the authorized, read-only `action=list` API endpoint.

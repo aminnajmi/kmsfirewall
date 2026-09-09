@@ -129,10 +129,11 @@ sub read_kms_whitelist {
 		message => 'Unexpected nftables output',
 		http_status => 500,
 	}) if @sets != 1 || !defined($sets[0]->{'type'}) || $sets[0]->{'type'} ne 'ipv4_addr'
-		|| ref($sets[0]->{'elem'}) ne 'ARRAY';
+		|| (exists($sets[0]->{'elem'}) && ref($sets[0]->{'elem'}) ne 'ARRAY');
 
+	my $elements = $sets[0]->{'elem'} || [];
 	my @addresses;
-	for my $element (@{$sets[0]->{'elem'}}) {
+	for my $element (@{$elements}) {
 		my $value;
 		if (!ref($element)) {
 			$value = $element;

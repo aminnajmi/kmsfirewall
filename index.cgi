@@ -5,6 +5,9 @@ use strict;
 use warnings;
 
 use WebminCore;
+
+our %text;
+
 &init_config();
 do './kmsfirewall-lib.pl' or &error("Failed to load module library");
 
