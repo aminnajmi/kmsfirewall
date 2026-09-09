@@ -5,17 +5,25 @@ KMS whitelist in a later phase. Laravel must not receive root Webmin or SSH
 credentials, and this module never exposes a generic command, file, RPC, or
 nftables endpoint.
 
-## Implemented scope: Phase 3
+## Implemented scope: Phase 4
 
 The module has a status-only GUI and one read-only health endpoint:
 
 ```text
 GET /kmsfirewall/api.cgi
 GET /kmsfirewall/api.cgi?action=status
+GET /kmsfirewall/api.cgi?action=list
 ```
 
-There are no nftables calls, firewall reads, whitelist operations, API keys,
-Bearer tokens, process execution, or system modifications in this release.
+`list` is read-only. It executes only the fixed argument-list command
+equivalent to `nft -j list set inet KMS-Firewall kms_whitelist`, parses its JSON
+with `JSON::PP`, and returns only validated IPv4 addresses or CIDRs. The HTTP
+request cannot select an executable, command, table, family, set, or argument.
+No nftables state, firewall configuration, chains, or rules are modified.
+
+`add`, `remove`, `delete`, IP checking, and all other write operations remain
+unimplemented. There are no API keys, Bearer tokens, generic commands, or RPC
+endpoints.
 
 ## Authentication and authorization architecture
 
@@ -105,52 +113,37 @@ perl -I/data/webmin -c /data/webmin/kmsfirewall/auth-lib.pl
 perl -I/data/webmin -c /data/webmin/kmsfirewall/api.cgi
 ```
 
-Use `-k` only with a development certificate. Replace the credentials below;
-they are restricted Webmin credentials, not a Bearer key.
+On Alpine systems whose curl does not support a cookie jar, run the included
+standard-library Python smoke test after deployment. It prompts for the
+restricted Webmin password rather than accepting it on the command line:
 
 ```sh
-# Establish a Webmin session without a browser. Keep this cookie file private.
-COOKIE_FILE=$(mktemp)
-curl -k -sS -c "$COOKIE_FILE" \
-  'https://SERVER:19193/session_login.cgi' -o /dev/null
-curl -k -sS -b "$COOKIE_FILE" -c "$COOKIE_FILE" \
-  --data-urlencode 'user=kms-api' \
-  --data-urlencode 'pass=PASSWORD' \
-  --data-urlencode 'page=/kmsfirewall/api.cgi' \
-  'https://SERVER:19193/session_login.cgi' -o /dev/null
+python3 /data/webmin/kmsfirewall/tests/phase4_api_test.py --url 'https://SERVER:19193'
 
-# Authorized status request: HTTP 200
-curl -k -i -b "$COOKIE_FILE" \
-  'https://SERVER:19193/kmsfirewall/api.cgi?action=status'
-
-# Omitted action: HTTP 200
-curl -k -i -b "$COOKIE_FILE" \
-  'https://SERVER:19193/kmsfirewall/api.cgi'
-
-# Use a separately established session for an administrator or another user
-# that has kmsfirewall module access but is not api_authorized_user: HTTP 403.
-# Administrator GUI access remains available, but its API request is denied.
-
-# Invalid action, after authorization: HTTP 404
-curl -k -i -b "$COOKIE_FILE" \
-  'https://SERVER:19193/kmsfirewall/api.cgi?action=list'
-
-# POST, after Webmin authentication: HTTP 405
-curl -k -i -b "$COOKIE_FILE" -X POST \
-  'https://SERVER:19193/kmsfirewall/api.cgi?action=status'
-
-# No Webmin authentication: Webmin itself rejects this before api.cgi runs.
-curl -k -i 'https://SERVER:19193/kmsfirewall/api.cgi?action=status'
-
-# Remove the cookie file after testing.
-rm -f "$COOKIE_FILE"
+# Development only, for an untrusted TLS certificate:
+python3 /data/webmin/kmsfirewall/tests/phase4_api_test.py --url 'https://SERVER:19193' --insecure
 ```
+
+The script performs authenticated `status` and `list` GET requests only. Test
+invalid actions, POST, unauthenticated access, and a second module-authorized
+but non-API user using your existing Webmin-session test harness; their expected
+HTTP statuses remain 404, 405, Webmin-controlled denial, and 403 respectively.
 
 Success response:
 
 ```json
 {"success":true,"module":"kmsfirewall","version":"1.0","status":"ok"}
 ```
+
+An empty whitelist response is:
+
+```json
+{"success":true,"module":"kmsfirewall","version":"1.0","action":"list","addresses":[]}
+```
+
+If nftables is unavailable, fails, emits invalid JSON, or returns an unexpected
+set structure or element type, the API returns a sanitized HTTP 500 JSON error.
+It never returns raw nftables output or command errors.
 
 The dedicated-user security test is successful only if `kms-api` cannot open
 unrelated Webmin modules, cannot accept RPC calls, and cannot use this module
@@ -164,5 +157,5 @@ may not be JSON; this is an unavoidable consequence of using documented
 
 ## Future phases
 
-Phase 4 will add IPv4 validation only after authorization. No firewall access
-will be added until the separate nftables and persistence phases are approved.
+Future phases may add validated IPv4 operations only after explicit approval.
+No write support or persistence integration is implemented in Phase 4.

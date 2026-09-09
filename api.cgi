@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# Phase 2: read-only JSON health endpoint. This CGI never invokes nftables.
+# Phase 4: JSON health endpoint and fixed-target read-only whitelist listing.
 
 use strict;
 use warnings;
@@ -89,5 +89,18 @@ send_json(200, {
 	version => module_version(),
 	status  => 'ok',
 }) if !defined($action) || $action eq 'status';
+
+if ($action eq 'list') {
+	my ($addresses, $error) = read_kms_whitelist();
+	send_error($error->{'http_status'}, $error->{'code'}, $error->{'message'})
+		if $error;
+	send_json(200, {
+		success   => JSON::PP::true,
+		module    => 'kmsfirewall',
+		version   => module_version(),
+		action    => 'list',
+		addresses => $addresses,
+	});
+}
 
 send_error(404, 'INVALID_ACTION', 'Unsupported API action');

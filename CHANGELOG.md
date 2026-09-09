@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased - Phase 4
+
+- Added the authorized, read-only `action=list` API endpoint.
+- Added fixed-target nftables JSON parsing for `inet KMS-Firewall` and
+  `kms_whitelist` with no write operations.
+
 ## Unreleased - Phase 3
 
 - Added a dedicated Webmin-user authorization layer for `api.cgi`.
