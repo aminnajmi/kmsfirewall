@@ -11,3 +11,4 @@ status_enabled=Enabled
 status_disabled=Disabled
 status_available=Available on the Webmin process PATH
 status_not_found=Not found on the Webmin process PATH
+acl_api_access=Allow access to the KMS Firewall API?

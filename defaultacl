@@ -1,0 +1,3 @@
+# Default detailed ACLs. Administrators are unrestricted unless a specific
+# per-user module ACL overrides this value.
+api_access=1

@@ -12,6 +12,7 @@ sub send_json {
 	my %reason = (
 		200 => 'OK',
 		400 => 'Bad Request',
+		403 => 'Forbidden',
 		404 => 'Not Found',
 		405 => 'Method Not Allowed',
 		500 => 'Internal Server Error',
@@ -64,16 +65,20 @@ sub request_action {
 	return ($parameters{'action'}, undef);
 }
 
-my $method = uc($ENV{'REQUEST_METHOD'} || 'GET');
-send_error(405, 'METHOD_NOT_ALLOWED', 'HTTP method not allowed')
-	if $method ne 'GET';
-
 my $loaded = eval {
 	&init_config();
 	do './kmsfirewall-lib.pl' or die 'module library unavailable';
+	do './auth-lib.pl' or die 'authorization library unavailable';
 	1;
 };
 send_error(500, 'INTERNAL_ERROR', 'Internal server error') if !$loaded;
+
+send_error(403, 'FORBIDDEN', 'KMS Firewall API access denied')
+	if !api_authorized();
+
+my $method = uc($ENV{'REQUEST_METHOD'} || 'GET');
+send_error(405, 'METHOD_NOT_ALLOWED', 'HTTP method not allowed')
+	if $method ne 'GET';
 
 my ($action, $query_error) = request_action();
 send_error(400, 'INVALID_PARAMETER', $query_error) if $query_error;

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased - Phase 3
+
+- Added a dedicated Webmin-user authorization layer for `api.cgi`.
+- Added an `api_access` detailed module ACL and its secure default.
+- Documented why Webmin RPC/API-only access is not enabled for this CGI API.
+
 ## Unreleased — Phase 2
 
 - Added the Phase 2 GET-only JSON health endpoint at `api.cgi`.

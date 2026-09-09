@@ -1,33 +1,86 @@
 # KMS Firewall Webmin module
 
-`kmsfirewall` is a dedicated Webmin module for managing the `kms_whitelist`
-set in `inet KMS-Firewall`. It is intended to provide a narrow, authenticated
-JSON API to a Laravel management panel; the panel will never be given shell or
-SSH access for firewall administration.
+`kmsfirewall` is a narrowly scoped Webmin module intended to manage only the
+KMS whitelist in a later phase. Laravel must not receive root Webmin or SSH
+credentials, and this module never exposes a generic command, file, RPC, or
+nftables endpoint.
 
-## Phase 2 scope
+## Implemented scope: Phase 3
 
-This release implements the installable Webmin module shell, its status-only
-GUI page, and a public, read-only JSON health endpoint. It does **not** call
-`nft`, inspect the active ruleset, alter firewall state, authenticate API
-requests, store an API key, or create audit records. The displayed target is
-configuration only.
+The module has a status-only GUI and one read-only health endpoint:
 
-The deliberately fixed defaults are:
+```text
+GET /kmsfirewall/api.cgi
+GET /kmsfirewall/api.cgi?action=status
+```
 
-| Setting | Default |
-| --- | --- |
-| nftables family/table | `inet KMS-Firewall` |
-| nftables set | `kms_whitelist` |
-| API enabled | `1` |
+There are no nftables calls, firewall reads, whitelist operations, API keys,
+Bearer tokens, process execution, or system modifications in this release.
 
-No client-controlled request exists in this release, so no arbitrary table,
-set, chain, rule, command, or path can be supplied.
+## Authentication and authorization architecture
 
-## Install on Alpine/Webmin
+There are two independent layers:
 
-Copy the module directory to the Webmin installation. Run as root on the
-server:
+1. Webmin/miniserv authenticates the HTTP request. With `session=1`, an
+   unauthenticated request is rejected by Webmin before `api.cgi` runs. This
+   module does not alter `miniserv.conf`, session handling, or global Webmin
+   authentication.
+2. After `init_config` has accepted the request, `auth-lib.pl` authorizes the
+   Webmin identity. Webmin's documented `$remote_user` is compared exactly to
+   `api_authorized_user` (default `kms-api`), and the module detailed ACL
+   `api_access` must be enabled.
+
+`init_config` also performs Webmin's first-level module ACL check. Webmin
+therefore blocks a logged-in user who lacks the `kmsfirewall` module before
+module code can emit JSON. A logged-in user who has module access but is not
+the configured API user, or has `api_access` disabled, receives this JSON
+response from the module:
+
+```json
+{"success":false,"error":{"code":"FORBIDDEN","message":"KMS Firewall API access denied"}}
+```
+
+## Important Webmin 2.660 API-only limitation
+
+Do **not** enable Webmin's per-user RPC/API-only option for `kms-api`. Webmin
+2.650 introduced the option, and subsequent Webmin releases explicitly note
+that RPC-only accounts block browser/module access before module ACL checks.
+That prevents this custom CGI endpoint from running. More importantly, Webmin
+documents that RPC clients can execute commands and access arbitrary files as
+root regardless of normal ACL restrictions. This module is intentionally not
+an RPC service.
+
+With `session=1`, Laravel needs a restricted Webmin login/session established
+programmatically; no browser is required, but a Webmin session is. The native
+RPC/API-only mechanism is not a safe substitute for this custom CGI. Do not
+weaken `session=1` or grant RPC access to work around this limitation.
+
+## Create the dedicated `kms-api` user
+
+As a Webmin administrator:
+
+1. Open **Webmin → Webmin Users** and choose **Create a new Webmin user**.
+2. Set **Username** to `kms-api`; use a unique, high-entropy password stored
+   only in Laravel's secret manager. Do not use `root` or `admin`.
+3. Under **Available Webmin modules**, select only **KMS Firewall Whitelist**.
+   Do not select Webmin Users, Command Shell, File Manager, Custom Commands,
+   or any other module.
+4. Leave the per-user **RPC/API-only** setting disabled. In **Global ACL**,
+   set **Can accept RPC calls?** to **No**.
+5. Save the user. Next to `kms-api`, click **KMS Firewall Whitelist** and set
+   **Allow access to the KMS Firewall API?** to **Yes**. Set **Can edit module
+   configuration?** to **No**.
+6. Confirm the module configuration value `api_authorized_user=kms-api`.
+   Changing that value is an administrator-only deployment action; it is never
+   accepted from an HTTP request.
+
+Do not give Laravel any administrator, root, SSH, or unrestricted RPC
+credential. Rotate the `kms-api` password through Webmin and Laravel's secret
+manager according to your operational policy.
+
+## Install and deploy
+
+From the project parent directory on the server, run as root:
 
 ```sh
 install -d -m 0755 /data/webmin/kmsfirewall
@@ -41,106 +94,75 @@ chmod 0755 /data/webmin/kmsfirewall/api.cgi
 /data/webmin/restart
 ```
 
-If this project is copied to the server first, run the commands from its
-parent directory. No Perl modules or package installation are required.
+## Tests
 
-Sign in to Webmin at `https://SERVER:19193/`, then open **Networking → KMS
-Firewall Whitelist**. Module placement may vary if the Webmin theme or module
-categories are customized.
-
-## Web UI result
-
-The status page identifies module version `1.0`, reports the configured
-target as `inet KMS-Firewall / kms_whitelist`, reports whether `nft` is on
-Webmin's PATH, and states that API configuration is enabled by default. It
-does not prove that the table/set exists and does not alter nftables.
-
-For a basic server-side syntax check:
+Run syntax checks on the Alpine target:
 
 ```sh
 perl -c /data/webmin/kmsfirewall/acl_security.pl
 perl -I/data/webmin -c /data/webmin/kmsfirewall/kmsfirewall-lib.pl
+perl -I/data/webmin -c /data/webmin/kmsfirewall/auth-lib.pl
 perl -I/data/webmin -c /data/webmin/kmsfirewall/api.cgi
 ```
 
-`index.cgi` needs Webmin's runtime environment and should be tested by opening
-the module in Webmin rather than executing it directly in a shell.
-
-## Phase 2 JSON health API
-
-The only API endpoint in this release is `GET /kmsfirewall/api.cgi`. `action`
-may be omitted or be exactly `status`. All other methods, actions, duplicate
-parameters, malformed percent encodings, and parameters other than `action`
-are rejected. Request bodies are never read or acted upon.
-
-The endpoint is intentionally unauthenticated only until Phase 3. Do not
-expose it to untrusted networks during this interim phase.
+Use `-k` only with a development certificate. Replace the credentials below;
+they are restricted Webmin credentials, not a Bearer key.
 
 ```sh
-# Substitute Webmin credentials if the Webmin server requires login. This is
-# Webmin's existing access control, not the Bearer-key authentication planned
-# for Phase 3.
+# Establish a Webmin session without a browser. Keep this cookie file private.
+COOKIE_FILE=$(mktemp)
+curl -k -sS -c "$COOKIE_FILE" \
+  'https://SERVER:19193/session_login.cgi' -o /dev/null
+curl -k -sS -b "$COOKIE_FILE" -c "$COOKIE_FILE" \
+  --data-urlencode 'user=kms-api' \
+  --data-urlencode 'pass=PASSWORD' \
+  --data-urlencode 'page=/kmsfirewall/api.cgi' \
+  'https://SERVER:19193/session_login.cgi' -o /dev/null
 
-# 1. GET without an action: HTTP 200
-curl -k -i --user 'WEBMIN_USER:WEBMIN_PASSWORD' "https://SERVER:19193/kmsfirewall/api.cgi"
+# Authorized status request: HTTP 200
+curl -k -i -b "$COOKIE_FILE" \
+  'https://SERVER:19193/kmsfirewall/api.cgi?action=status'
 
-# 2. GET status: HTTP 200
-curl -k -i --user 'WEBMIN_USER:WEBMIN_PASSWORD' "https://SERVER:19193/kmsfirewall/api.cgi?action=status"
+# Omitted action: HTTP 200
+curl -k -i -b "$COOKIE_FILE" \
+  'https://SERVER:19193/kmsfirewall/api.cgi'
 
-# 3. Unsupported action: HTTP 404
-curl -k -i --user 'WEBMIN_USER:WEBMIN_PASSWORD' "https://SERVER:19193/kmsfirewall/api.cgi?action=list"
+# Use a separately established session for an administrator or another user
+# that has kmsfirewall module access but is not api_authorized_user: HTTP 403.
+# Administrator GUI access remains available, but its API request is denied.
 
-# 4. POST: HTTP 405
-curl -k -i --user 'WEBMIN_USER:WEBMIN_PASSWORD' -X POST "https://SERVER:19193/kmsfirewall/api.cgi?action=status"
+# Invalid action, after authorization: HTTP 404
+curl -k -i -b "$COOKIE_FILE" \
+  'https://SERVER:19193/kmsfirewall/api.cgi?action=list'
 
-# 5. Unknown parameter: HTTP 400
-curl -k -i --user 'WEBMIN_USER:WEBMIN_PASSWORD' "https://SERVER:19193/kmsfirewall/api.cgi?debug=1"
+# POST, after Webmin authentication: HTTP 405
+curl -k -i -b "$COOKIE_FILE" -X POST \
+  'https://SERVER:19193/kmsfirewall/api.cgi?action=status'
 
-# 5. Malformed query encoding: HTTP 400
-curl -k -i --user 'WEBMIN_USER:WEBMIN_PASSWORD' "https://SERVER:19193/kmsfirewall/api.cgi?action=%ZZ"
+# No Webmin authentication: Webmin itself rejects this before api.cgi runs.
+curl -k -i 'https://SERVER:19193/kmsfirewall/api.cgi?action=status'
+
+# Remove the cookie file after testing.
+rm -f "$COOKIE_FILE"
 ```
 
-Successful requests return:
+Success response:
 
 ```json
 {"success":true,"module":"kmsfirewall","version":"1.0","status":"ok"}
 ```
 
-An unsupported action returns HTTP 404:
+The dedicated-user security test is successful only if `kms-api` cannot open
+unrelated Webmin modules, cannot accept RPC calls, and cannot use this module
+for commands, file access, configuration changes, or any action beyond status.
+Verify this after every Webmin ACL or module upgrade.
 
-```json
-{"success":false,"error":{"code":"INVALID_ACTION","message":"Unsupported API action"}}
-```
+A user with no `kmsfirewall` module access is rejected by Webmin before this
+CGI starts. That response is controlled by Webmin rather than this module and
+may not be JSON; this is an unavoidable consequence of using documented
+`init_config` module ACL enforcement.
 
-The response header is `Content-Type: application/json; charset=UTF-8`; it
-also disables content sniffing and caching. Webmin HTTP authentication may
-still be required by the surrounding Webmin server configuration.
+## Future phases
 
-## Planned security model
-
-Phase 3 will require `Authorization: Bearer <API_KEY>`, use a key stored
-through module configuration, compare it in constant time, and never log or
-return it. The only planned operations are status, list, check, add, and
-remove for validated individual IPv4 addresses. There will be no generic shell
-or nftables endpoint.
-
-## Persistence
-
-Live whitelist changes are intentionally not implemented in Phase 1. Before
-any write support is added, the installed Webmin nftables module must be
-inspected on the target system to determine its saved-rules representation and
-apply workflow. The synchronization adapter will be isolated and documented;
-no implementation will knowingly permit a subsequent Webmin Apply Changes to
-discard whitelist entries.
-
-## Laravel integration
-
-Laravel may use the Phase 2 endpoint only as a connectivity health check. Do
-not use it for firewall management until later phases, including authentication,
-have been implemented and tested.
-
-## Troubleshooting
-
-If the module is absent, confirm `/data/webmin/kmsfirewall/module.info` is
-readable by root and restart Webmin. If it opens but `nft` is not found, check
-the PATH of the Webmin service; this is informational in Phase 1 only.
+Phase 4 will add IPv4 validation only after authorization. No firewall access
+will be added until the separate nftables and persistence phases are approved.

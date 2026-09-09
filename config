@@ -1,4 +1,4 @@
 # Local module configuration.
 #
-# Do not store an API key in this source-controlled file. Configure it after
-# installation through Webmin's module configuration mechanism in Phase 3.
+# Do not store credentials in this source-controlled file. Phase 3 relies on
+# Webmin's authenticated user identity and the configured API username.

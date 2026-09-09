@@ -1,7 +1,7 @@
 # Module configuration defaults. Webmin copies these defaults into the module
 # configuration on first use; values are never accepted from API requests.
 api_enabled=1
+api_authorized_user=kms-api
 nft_table=KMS-Firewall
 nft_set=kms_whitelist
-api_key=
 audit_log=/var/webmin/kmsfirewall-audit.log
