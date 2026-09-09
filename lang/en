@@ -1,0 +1,13 @@
+index_title=KMS Firewall Whitelist
+index_return=Return to Webmin
+index_phase1=Phase 1 is installed. This page only reports module configuration and does not read or modify nftables.
+status_title=Module status
+status_module=Module
+status_version=Version
+status_api=API setting
+status_nft=nft command
+status_target=Configured target
+status_enabled=Enabled
+status_disabled=Disabled
+status_available=Available on the Webmin process PATH
+status_not_found=Not found on the Webmin process PATH

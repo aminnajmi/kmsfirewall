@@ -1,0 +1,4 @@
+# Local module configuration.
+#
+# Do not store an API key in this source-controlled file. Configure it after
+# installation through Webmin's module configuration mechanism in Phase 3.

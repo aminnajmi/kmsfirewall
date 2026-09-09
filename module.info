@@ -1,0 +1,7 @@
+desc=KMS Firewall Whitelist
+category=net
+version=1.0
+author=KMS Firewall API maintainers
+depends=
+os_support=*-linux
+longdesc=Safely manages the KMS firewall whitelist through a dedicated Webmin module.
